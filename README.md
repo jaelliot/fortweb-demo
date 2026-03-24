@@ -1,2 +1,2 @@
-# wallet
-Wallet for KERI. This is the universal wallet based on python running on browser pyodide-WASM.
+# Fortweb Wallet
+Wallet for KERI. This is the universal web wallet based on python running on browser pyodide-WASM.
