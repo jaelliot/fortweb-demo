@@ -928,6 +928,14 @@
     color: var(--color-success-text);
 }
 
+.status-line--loading {
+    color: var(--color-text-muted, #888);
+}
+
+.status-line--error {
+    color: var(--color-danger);
+}
+
 /* =========================================================================
    Locksmith Components (matching locksmith Qt toolkit)
    ========================================================================= */

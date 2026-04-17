@@ -68,13 +68,20 @@ export function renderUnlockPage({ vault, onOpenVault }) {
                 const formData = new FormData(form);
 
                 submitButton.disabled = true;
-                statusLine.textContent = "";
+                statusLine.textContent = "Opening vault\u2026";
+                statusLine.classList.remove("status-line--error");
+                statusLine.classList.add("status-line--loading");
 
                 try {
                     await onOpenVault(String(formData.get("passcode") || ""));
                 } catch (error) {
                     submitButton.disabled = false;
-                    statusLine.textContent = error.message || "Vault open failed.";
+                    statusLine.classList.remove("status-line--loading");
+                    statusLine.classList.add("status-line--error");
+                    statusLine.textContent =
+                        error.code === "TIMEOUT"
+                            ? "The vault took too long to open. This can happen after the app has been in the background. Please try again."
+                            : error.message || "Vault open failed.";
                 }
             });
         },

@@ -417,17 +417,35 @@ def _vault_id_for_alias(alias: str, existing_ids: set[str]):
     return candidate
 
 
+def _perf_ms():
+    from js import performance
+    return performance.now()
+
+
 async def _build_vault_state(record, *, bran: str = ""):
+    t0 = _perf_ms()
     await _ensure_runtime_packages()
+    js.console.log(f"[worker] _ensure_runtime_packages: {_perf_ms() - t0:.0f}ms")
+
+    t1 = _perf_ms()
     modules = _load_modules()
+    js.console.log(f"[worker] _load_modules: {_perf_ms() - t1:.0f}ms")
+
     keeper = modules["webkeeping"].WebKeeper(name=record["storageName"])
     baser = modules["webbasing"].WebBaser(name=record["storageName"])
     if KF_STATE_SUBDB not in baser.SubDbNames:
         baser.SubDbNames = [*baser.SubDbNames, KF_STATE_SUBDB]
+
+    t2 = _perf_ms()
     await keeper.reopen()
+    js.console.log(f"[worker] keeper.reopen: {_perf_ms() - t2:.0f}ms")
+
+    t3 = _perf_ms()
     await baser.reopen()
+    js.console.log(f"[worker] baser.reopen: {_perf_ms() - t3:.0f}ms")
 
     try:
+        t4 = _perf_ms()
         hby = modules["habbing"].Habery(
             name=record["storageName"],
             ks=keeper,
@@ -437,11 +455,13 @@ async def _build_vault_state(record, *, bran: str = ""):
             salt=record["rootSalt"],
             bran=bran or None,
         )
+        js.console.log(f"[worker] Habery init: {_perf_ms() - t4:.0f}ms")
     except Exception:
         await baser.aclose(clear=False)
         await keeper.aclose(clear=False)
         raise
 
+    js.console.log(f"[worker] _build_vault_state total: {_perf_ms() - t0:.0f}ms")
     return {
         "modules": modules,
         "vault": record,
@@ -454,6 +474,7 @@ async def _open_vault_state(record, *, passcode=None, bran: str | None = None):
     global _STATE
 
     if _STATE is not None and _STATE["vault"]["id"] == record["id"]:
+        js.console.log("[worker] vaults.open: vault already open (cache hit)")
         return _STATE
 
     await _close_state(clear=False)
@@ -463,7 +484,9 @@ async def _open_vault_state(record, *, passcode=None, bran: str | None = None):
         if not derived_bran and not str(passcode or "").strip():
             raise RuntimeFault("VALIDATION", "Passcode is required to open this vault.")
         if not derived_bran:
+            t_kdf = _perf_ms()
             derived_bran = _prepare_bran(passcode, record.get("passcodeKdf"))
+            js.console.log(f"[worker] _prepare_bran (Argon2id KDF): {_perf_ms() - t_kdf:.0f}ms")
 
     modules = _load_modules()
     try:
@@ -1934,8 +1957,11 @@ async def handle_request(raw_message):
         return _error_payload(message_id, "BAD_REQUEST", "Runtime request params must be an object.")
 
     try:
+        t_dispatch = _perf_ms()
+        js.console.log(f"[worker] >> {method} (id={message_id})")
         async with _REQUEST_LOCK:
             result = await _dispatch(method, params)
+        js.console.log(f"[worker] << {method}: {_perf_ms() - t_dispatch:.0f}ms")
         return json.dumps(
             {
                 "id": message_id,
@@ -1945,13 +1971,24 @@ async def handle_request(raw_message):
             }
         )
     except RuntimeFault as exc:
+        js.console.log(f"[worker] << {method} FAULT({exc.code}): {_perf_ms() - t_dispatch:.0f}ms")
         return _error_payload(message_id, exc.code, str(exc))
     except Exception:
         try:
+            js.console.error(f"[worker] << {method} ERROR: {_perf_ms() - t_dispatch:.0f}ms")
             js.console.error(traceback.format_exc())
         except Exception:
             pass
         return _error_payload(message_id, "RUNTIME_ERROR", "Runtime request failed.")
 
+
+async def _preload():
+    t0 = _perf_ms()
+    await _ensure_runtime_packages()
+    _load_modules()
+    js.console.log(f"[worker] preload complete: {_perf_ms() - t0:.0f}ms")
+
+
+asyncio.ensure_future(_preload())
 
 sync.handle_request = handle_request
