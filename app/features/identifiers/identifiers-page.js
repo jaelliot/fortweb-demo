@@ -70,7 +70,7 @@ export function renderIdentifiersPage({ vault, identifiers, onCreateIdentifier }
     const identifierTable = renderPaginatedTable({
         icon: "./assets/icons/identifiers.png",
         title: "Local Identifiers",
-        titleTag: "h1",
+        collapseHeadingOnMobile: true,
         searchPlaceholder: "Search...",
         addButtonText: "Add Identifier",
         columns: [

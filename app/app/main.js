@@ -112,6 +112,8 @@ function showCreateVaultDialog() {
         title: "Vault Initialization",
         showClose: true,
         showDivider: true,
+        rootClassName: "lk-dialog-root--sheet",
+        surfaceClassName: "lk-dialog--sheet",
         content: `
             <form data-create-vault-form style="display:flex;flex-direction:column;gap:16px;padding:16px 0;">
                 ${floatingInputHtml({ label: "Name", name: "name" })}
@@ -126,7 +128,7 @@ function showCreateVaultDialog() {
             <button class="button button--secondary" type="button" data-dialog-cancel>Cancel</button>
             <button class="button button--primary" type="button" data-dialog-submit>Create</button>
         `,
-        showOverlay: false,
+        showOverlay: true,
     });
 
     dialog.show();
@@ -142,7 +144,10 @@ function showCreateVaultDialog() {
     async function submit() {
         const formData = new FormData(form);
         submitBtn.disabled = true;
+        cancelBtn.disabled = true;
         statusLine.textContent = "";
+        submitBtn.textContent = "Creating...";
+        statusLine.textContent = "Creating vault...";
 
         try {
             await actions.createVault(
@@ -150,9 +155,10 @@ function showCreateVaultDialog() {
                 String(formData.get("passcode") || ""),
             );
             dialog.close();
-            drawer?.close();
         } catch (error) {
             submitBtn.disabled = false;
+            cancelBtn.disabled = false;
+            submitBtn.textContent = "Create";
             statusLine.textContent = error.message || "Vault creation failed.";
         }
     }
@@ -407,6 +413,13 @@ async function loadPage(route) {
             page: renderVaultPickerPage({
                 vaults: currentState().vaults,
                 onCreateVault: showCreateVaultDialog,
+                onSelectVault(vault) {
+                    if (isUnlocked(vault.id)) {
+                        navigate(currentState().lastCoreRoutes[vault.id] || identifiersHref(vault.id));
+                        return;
+                    }
+                    navigate(unlockHref(vault.id));
+                },
             }),
             vault: null,
         };

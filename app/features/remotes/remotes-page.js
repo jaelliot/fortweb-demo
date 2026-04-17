@@ -170,7 +170,7 @@ export function renderRemotesPage({
     const remotesTable = renderPaginatedTable({
         icon: "./assets/icons/remoteIds.png",
         title: "Remote Identifiers",
-        titleTag: "h1",
+        collapseHeadingOnMobile: true,
         titleMetaHtml: `
             <div class="lk-inline-filter" role="group" aria-label="Remote identifier filter">
                 ${filterButton("All", "all", filter)}

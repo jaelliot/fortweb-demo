@@ -2,6 +2,23 @@ import { PyWorker } from "../../vendor/pyscript/2025.11.2/core.js";
 import { parse as parseToml } from "../../vendor/pyscript/2025.11.2/toml-BK2RWy-G.js";
 import { createRuntimeRequest, isRuntimeResponse } from "./messages.js";
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const METHOD_TIMEOUT_MS = {
+    "vaults.create": 120_000,
+    "vaults.open": 90_000,
+    "identifiers.create": 90_000,
+    "remotes.resolveOobi": 60_000,
+    "kf.onboarding.start": 120_000,
+};
+
+function resolveTimeoutMs(method, timeoutMs) {
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        return timeoutMs;
+    }
+
+    return METHOD_TIMEOUT_MS[method] ?? DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
 function withTimeout(promise, timeoutMs, method) {
     return new Promise((resolve, reject) => {
         const timeoutId = window.setTimeout(() => {
@@ -69,7 +86,7 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
         return bootedWorker;
     }
 
-    async function rawRequest(rawPayload, timeoutMs = 30_000, label = "raw runtime request") {
+    async function rawRequest(rawPayload, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, label = "raw runtime request") {
         if (typeof rawPayload !== "string") {
             throw new Error("Runtime raw request payload must be a string.");
         }
@@ -79,10 +96,11 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
         return parseRuntimeResponse(rawResponse);
     }
 
-    async function request(method, params = {}, timeoutMs = 30_000) {
+    async function request(method, params = {}, timeoutMs) {
+        const effectiveTimeoutMs = resolveTimeoutMs(method, timeoutMs);
         const id = `runtime-${Date.now()}-${requestCounter++}`;
         const payload = JSON.stringify(createRuntimeRequest(id, method, params));
-        const response = await rawRequest(payload, timeoutMs, method);
+        const response = await rawRequest(payload, effectiveTimeoutMs, method);
 
         if (!isRuntimeResponse(response) || response.id !== id) {
             const error = new Error("Runtime worker returned an invalid response.");

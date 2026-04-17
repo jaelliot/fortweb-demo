@@ -1,9 +1,9 @@
 #app-root {
-    min-height: 100vh;
+    min-height: 100dvh;
 }
 
 .shell {
-    min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
 }
@@ -62,7 +62,7 @@
 
 .shell__body {
     flex: 1;
-    min-height: calc(100vh - var(--topbar-height));
+    min-height: calc(100dvh - var(--topbar-height));
 }
 
 .shell__body--home {
@@ -71,13 +71,19 @@
 }
 
 .shell__body--home .shell__content {
-    padding: 30px;
+    display: flex;
+    justify-content: center;
+    padding:
+        calc(env(safe-area-inset-top) + var(--home-shell-top-padding))
+        max(var(--content-inline-gutter), env(safe-area-inset-right))
+        calc(env(safe-area-inset-bottom) + var(--home-shell-bottom-padding))
+        max(var(--content-inline-gutter), env(safe-area-inset-left));
 }
 
 .shell__body--home .shell__content-inner {
     width: min(100%, var(--content-home-width));
     max-width: none;
-    gap: 20px;
+    gap: var(--surface-gap);
 }
 
 .shell__body--vault {
@@ -150,7 +156,7 @@
 }
 
 .shell__content {
-    padding: 30px;
+    padding: var(--panel-padding);
     flex: 1;
     min-width: 0;
 }
@@ -159,7 +165,7 @@
     width: 100%;
     margin: 0 auto;
     display: grid;
-    gap: 20px;
+    gap: var(--surface-gap);
 }
 
 .shell__body--vault .shell__content-inner {
@@ -168,7 +174,7 @@
 
 .page-grid {
     display: grid;
-    gap: 20px;
+    gap: var(--surface-gap);
 }
 
 .page-grid--home {
@@ -178,7 +184,7 @@
 
 .page-columns {
     display: grid;
-    gap: 20px;
+    gap: var(--surface-gap);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
@@ -232,7 +238,7 @@
     }
 
     .shell__content {
-        padding: 24px;
+        padding: var(--panel-padding);
     }
 
     .lk-sidebar-overlay {
@@ -274,16 +280,193 @@
 }
 
 @media (max-width: 720px) {
-    .shell__body--home,
-    .shell__content {
-        padding: var(--space-4);
-    }
-
     .topbar {
         padding: 0 var(--space-3);
     }
 
     .topbar__title {
         font-size: 20px;
+    }
+}
+
+.shell--home {
+    background: var(--color-window);
+}
+
+.shell--vault {
+    background: var(--color-content);
+}
+
+.shell-header {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding:
+        calc(env(safe-area-inset-top) + var(--safe-area-buffer-top))
+        max(var(--shell-header-inline-padding), env(safe-area-inset-right))
+        var(--shell-header-bottom-padding)
+        max(var(--shell-header-inline-padding), env(safe-area-inset-left));
+    background: rgba(248, 249, 255, 0.96);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--color-border-table);
+}
+
+.shell-header__leading {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+.shell-header__eyebrow {
+    margin: 0;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.72rem;
+}
+
+.shell-header__title {
+    margin: 0;
+    color: var(--color-text-dark);
+    font-size: clamp(1.32rem, 4.4vw, 1.85rem);
+    line-height: 1.05;
+}
+
+.shell-header__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.shell-header__vault-button {
+    min-height: max(40px, var(--button-min-height));
+    padding: 10px 14px;
+}
+
+.shell-header__icon {
+    border: 1px solid var(--color-border-table);
+    border-radius: 999px;
+    background: var(--color-surface);
+}
+
+.shell__content--home {
+    padding: 0;
+}
+
+.shell__content--vault {
+    padding:
+        var(--shell-content-top-padding)
+        max(var(--content-inline-gutter), env(safe-area-inset-right))
+        calc(env(safe-area-inset-bottom) + var(--shell-tabbar-clearance))
+        max(var(--content-inline-gutter), env(safe-area-inset-left));
+}
+
+.shell-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 14;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+    padding:
+        var(--shell-tabbar-padding-top)
+        var(--shell-tabbar-padding-inline)
+        calc(env(safe-area-inset-bottom) + var(--safe-area-buffer-bottom));
+    background: rgba(248, 249, 255, 0.96);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--color-border-table);
+}
+
+.shell-tabbar__link {
+    min-height: var(--shell-tabbar-control-height);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 10px clamp(8px, 2.5vw, 12px);
+    border-radius: 999px;
+    text-decoration: none;
+    color: var(--color-text-secondary);
+    background: transparent;
+    font-size: clamp(0.82rem, 1.9vw, 0.92rem);
+    font-weight: 600;
+}
+
+.shell-tabbar__link.is-active {
+    background: var(--color-surface);
+    color: var(--color-text-dark);
+    box-shadow: var(--shadow-subtle);
+}
+
+.shell-section-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.shell-section-tabs__link {
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border-table);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.shell-section-tabs__link.is-active {
+    border-color: var(--color-primary);
+    color: var(--color-text-dark);
+}
+
+@media (min-width: 901px) {
+    .shell-tabbar {
+        left: 50%;
+        right: auto;
+        width: min(720px, calc(100vw - 48px));
+        transform: translateX(-50%);
+        border: 1px solid var(--color-border-table);
+        border-bottom: none;
+        border-top-left-radius: 24px;
+        border-top-right-radius: 24px;
+    }
+
+    .shell__content--vault {
+        padding-left: var(--space-5);
+        padding-right: var(--space-5);
+    }
+}
+
+@media (max-width: 720px) {
+    .shell-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .shell-header__actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .shell-header__vault-button {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .shell-tabbar {
+        gap: var(--space-1);
     }
 }
