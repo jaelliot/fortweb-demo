@@ -564,7 +564,11 @@ async function loadPage(route) {
     };
 }
 
+/** Incremented on every render(); stale renders bail so tab taps do not stack concurrent bridge calls. */
+let renderGeneration = 0;
+
 async function render() {
+    const thisGeneration = ++renderGeneration;
     const route = parseRoute();
     const state = currentState();
     const vault = route.requiresVault ? findVault(route.params.vaultId) : null;
@@ -587,7 +591,13 @@ async function render() {
     rememberCoreRoute(route);
 
     try {
+        if (thisGeneration !== renderGeneration) {
+            return;
+        }
         const { page, vault: loadedVault } = await loadPage(route);
+        if (thisGeneration !== renderGeneration) {
+            return;
+        }
         renderShell(root, {
             route,
             page,
@@ -596,6 +606,9 @@ async function render() {
             actions,
         });
     } catch (error) {
+        if (thisGeneration !== renderGeneration) {
+            return;
+        }
         if (error?.code === "NOT_FOUND") {
             renderNotFoundRoute(route, currentState(), vault);
             return;
@@ -607,6 +620,9 @@ async function render() {
                 mobileNavOpen: false,
             });
             await actions.refreshVaults(null, null).catch(() => null);
+            if (thisGeneration !== renderGeneration) {
+                return;
+            }
             navigate(unlockHref(route.params.vaultId));
             return;
         }

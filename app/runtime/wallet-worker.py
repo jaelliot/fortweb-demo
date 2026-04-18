@@ -119,7 +119,7 @@ _MODULES = None
 _STATE = None
 _REGISTRY = None
 _REQUEST_LOCK = asyncio.Lock()
-_RUNTIME_PACKAGES_READY = False
+_RUNTIME_PACKAGES_TASK = None  # Shared task so _preload and _dispatch coalesce package loads
 
 
 @dataclass
@@ -149,6 +149,15 @@ def _origin():
         return ""
 
 
+def _is_bundled_app_shell():
+    """True for WKWebView app:// (and file:) — no HTTP proxy; skip remote KF fetches that would block the worker."""
+    origin = _origin()
+    if not origin:
+        return False
+    scheme = origin.split(":", 1)[0].lower()
+    return scheme in {"app", "file"}
+
+
 def _absolute_url(path: str):
     origin = _origin()
     if origin and path.startswith("/"):
@@ -167,15 +176,23 @@ async def _load_package_batch(specs):
         await pending
 
 
-async def _ensure_runtime_packages():
-    global _RUNTIME_PACKAGES_READY
-
-    if _RUNTIME_PACKAGES_READY:
-        return
-
+async def _do_load_runtime_packages():
     await _load_package_batch(PYODIDE_PACKAGE_NAMES)
     await _load_package_batch([_absolute_url(path) for path in LOCAL_WHEEL_PATHS])
-    _RUNTIME_PACKAGES_READY = True
+
+
+async def _ensure_runtime_packages():
+    """Load Pyodide wheels once; concurrent callers await the same in-flight task."""
+    global _RUNTIME_PACKAGES_TASK
+
+    if _RUNTIME_PACKAGES_TASK is None:
+        _RUNTIME_PACKAGES_TASK = asyncio.ensure_future(_do_load_runtime_packages())
+
+    try:
+        await _RUNTIME_PACKAGES_TASK
+    except Exception:
+        _RUNTIME_PACKAGES_TASK = None
+        raise
 
 
 def _load_modules():
@@ -1981,6 +1998,22 @@ async def _dispatch(method: str, params: dict):
         record.boot_url = boot_url
         _save_kf_state(hby, record)
 
+        if _is_bundled_app_shell():
+            urls = _bootstrap_urls(boot_url)
+            return {
+                "bootUrl": boot_url,
+                "connection": {
+                    "ok": False,
+                    "error": "KF bootstrap network is unavailable in this embedded app shell.",
+                },
+                "bootstrap": None,
+                "surfaces": {
+                    "onboardingUrl": urls["onboardingUrl"],
+                    "accountUrl": urls["accountUrl"],
+                },
+                "account": _kf_state_view(record),
+            }
+
         try:
             snapshot = await _fetch_bootstrap_snapshot(boot_url)
         except RuntimeFault as exc:
@@ -2120,9 +2153,23 @@ async def handle_request(raw_message):
 
 async def _preload():
     t0 = _perf_ms()
-    await _ensure_runtime_packages()
-    _load_modules()
-    js.console.log(f"[worker] preload complete: {_perf_ms() - t0:.0f}ms")
+    try:
+        await _ensure_runtime_packages()
+        _load_modules()
+        dur = round(_perf_ms() - t0)
+        js.console.log(f"[worker] preload complete: {dur:.0f}ms")
+        emit_runtime_diagnostic(
+            "worker_preload_complete",
+            duration_ms=dur,
+        )
+    except Exception as exc:
+        emit_runtime_diagnostic(
+            "worker_preload_failed",
+            level="error",
+            duration_ms=round(_perf_ms() - t0),
+            error=str(exc),
+        )
+        raise
 
 
 asyncio.ensure_future(_preload())

@@ -7,6 +7,8 @@ const WORKER_DIAGNOSTIC_KIND = "fortweb.runtime.diagnostic";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const WORKER_LIVENESS_TIMEOUT_MS = 3_000;
 const BACKGROUND_STALE_THRESHOLD_MS = 30_000;
+/** Max wait for Python-side wheel import preload (WKWebView cold boot can exceed brief RPC timeouts). */
+const PRELOAD_MAX_MS = 300_000;
 const METHOD_TIMEOUT_MS = {
     "vaults.create": 120_000,
     "vaults.open": 90_000,
@@ -75,6 +77,22 @@ function resolveTimeoutMs(method, timeoutMs) {
     }
 
     return METHOD_TIMEOUT_MS[method] ?? DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+function createPreloadGate() {
+    let settled = false;
+    /** @type {(reason?: string) => void} */
+    let resolveGate;
+    const promise = new Promise((resolve) => {
+        resolveGate = (reason) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            resolve(reason);
+        };
+    });
+    return { promise, resolve: resolveGate };
 }
 
 function withTimeout(promise, timeoutMs, method) {
@@ -148,6 +166,28 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
     let workerPromise = null;
     let hiddenSince = 0;
     const nativeBridge = createNativeBridgeAdapter();
+    let preloadGate = createPreloadGate();
+
+    function resetPreloadGate() {
+        preloadGate = createPreloadGate();
+    }
+
+    function resolvePreloadGate(reason = "resolved") {
+        preloadGate.resolve(reason);
+    }
+
+    async function waitForPreloadReady() {
+        await Promise.race([
+            preloadGate.promise,
+            new Promise((_, reject) => {
+                window.setTimeout(() => {
+                    const err = new Error("Worker preload timed out.");
+                    err.code = "TIMEOUT";
+                    reject(err);
+                }, PRELOAD_MAX_MS);
+            }),
+        ]);
+    }
 
     function postToNativeBridge(payload) {
         try {
@@ -172,6 +212,7 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
     }
 
     function createWorkerPromise() {
+        resetPreloadGate();
         return (async () => {
             console.time("[bridge] worker boot");
             emitNativeLifecycle("boot");
@@ -194,6 +235,7 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
                 emitNativeLifecycle("error", {
                     reason: error?.message ?? String(error),
                 });
+                resolvePreloadGate("js_boot_error");
                 throw error;
             } finally {
                 console.timeEnd("[bridge] worker boot");
@@ -228,6 +270,12 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
                     level: diagnostic.level ?? "info",
                     ...diagnostic.fields,
                 });
+                if (
+                    diagnostic.event === "worker_preload_complete" ||
+                    diagnostic.event === "worker_preload_failed"
+                ) {
+                    resolvePreloadGate(diagnostic.event);
+                }
             });
         }
 
@@ -236,6 +284,7 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
             emitNativeLifecycle("error", {
                 reason: ev?.message ?? String(ev),
             });
+            resolvePreloadGate("worker_error");
             invalidateWorker("worker error event");
         };
         if (typeof worker.onmessageerror === "object" || worker.onmessageerror === null) {
@@ -244,6 +293,7 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
                 emitNativeLifecycle("error", {
                     reason: "worker message deserialization error",
                 });
+                resolvePreloadGate("worker_message_error");
                 invalidateWorker("message error event");
             };
         }
@@ -259,17 +309,17 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
     }
 
     async function getWorker(timeoutMs) {
-        if (bootedWorker) {
-            return bootedWorker;
+        if (!bootedWorker) {
+            try {
+                bootedWorker = await withTimeout(workerPromise, timeoutMs, "worker boot");
+            } catch (error) {
+                console.warn("[bridge] initial worker promise failed, booting fresh worker:", error?.message);
+                bootedWorker = await bootFreshWorker(timeoutMs);
+            }
         }
 
-        try {
-            bootedWorker = await withTimeout(workerPromise, timeoutMs, "worker boot");
-            return bootedWorker;
-        } catch (error) {
-            console.warn("[bridge] initial worker promise failed, booting fresh worker:", error?.message);
-            return bootFreshWorker(timeoutMs);
-        }
+        await waitForPreloadReady();
+        return bootedWorker;
     }
 
     async function checkWorkerLiveness(worker) {
