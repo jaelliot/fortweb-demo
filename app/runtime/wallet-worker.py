@@ -422,14 +422,46 @@ def _perf_ms():
     return performance.now()
 
 
+_DIAGNOSTIC_KIND = "fortweb.runtime.diagnostic"
+
+
+def emit_runtime_diagnostic(event: str, *, level: str = "info", **fields: object) -> None:
+    payload = {"kind": _DIAGNOSTIC_KIND, "event": event, "level": level}
+    payload.update(
+        {k: v for k, v in fields.items() if v is not None and v != ""}
+    )
+    try:
+        js.self.postMessage(json.dumps(payload))
+    except Exception:
+        pass
+
+
 async def _build_vault_state(record, *, bran: str = ""):
+    storage_name = record["storageName"]
     t0 = _perf_ms()
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.build.start",
+        storage_name=storage_name,
+    )
     await _ensure_runtime_packages()
     js.console.log(f"[worker] _ensure_runtime_packages: {_perf_ms() - t0:.0f}ms")
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.packages.ready",
+        storage_name=storage_name,
+        duration_ms=round(_perf_ms() - t0),
+    )
 
     t1 = _perf_ms()
     modules = _load_modules()
     js.console.log(f"[worker] _load_modules: {_perf_ms() - t1:.0f}ms")
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.modules.ready",
+        storage_name=storage_name,
+        duration_ms=round(_perf_ms() - t1),
+    )
 
     keeper = modules["webkeeping"].WebKeeper(name=record["storageName"])
     baser = modules["webbasing"].WebBaser(name=record["storageName"])
@@ -437,15 +469,42 @@ async def _build_vault_state(record, *, bran: str = ""):
         baser.SubDbNames = [*baser.SubDbNames, KF_STATE_SUBDB]
 
     t2 = _perf_ms()
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.keeper.reopen.start",
+        storage_name=storage_name,
+    )
     await keeper.reopen()
     js.console.log(f"[worker] keeper.reopen: {_perf_ms() - t2:.0f}ms")
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.keeper.reopen.end",
+        storage_name=storage_name,
+        duration_ms=round(_perf_ms() - t2),
+    )
 
     t3 = _perf_ms()
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.baser.reopen.start",
+        storage_name=storage_name,
+    )
     await baser.reopen()
     js.console.log(f"[worker] baser.reopen: {_perf_ms() - t3:.0f}ms")
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.baser.reopen.end",
+        storage_name=storage_name,
+        duration_ms=round(_perf_ms() - t3),
+    )
 
     try:
         t4 = _perf_ms()
+        emit_runtime_diagnostic(
+            "worker_phase",
+            phase="vault_state.habery.start",
+            storage_name=storage_name,
+        )
         hby = modules["habbing"].Habery(
             name=record["storageName"],
             ks=keeper,
@@ -456,12 +515,30 @@ async def _build_vault_state(record, *, bran: str = ""):
             bran=bran or None,
         )
         js.console.log(f"[worker] Habery init: {_perf_ms() - t4:.0f}ms")
+        emit_runtime_diagnostic(
+            "worker_phase",
+            phase="vault_state.habery.end",
+            storage_name=storage_name,
+            duration_ms=round(_perf_ms() - t4),
+        )
     except Exception:
+        emit_runtime_diagnostic(
+            "worker_phase",
+            level="error",
+            phase="vault_state.habery.error",
+            storage_name=storage_name,
+        )
         await baser.aclose(clear=False)
         await keeper.aclose(clear=False)
         raise
 
     js.console.log(f"[worker] _build_vault_state total: {_perf_ms() - t0:.0f}ms")
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vault_state.build.end",
+        storage_name=storage_name,
+        duration_ms=round(_perf_ms() - t0),
+    )
     return {
         "modules": modules,
         "vault": record,
@@ -473,11 +550,39 @@ async def _build_vault_state(record, *, bran: str = ""):
 async def _open_vault_state(record, *, passcode=None, bran: str | None = None):
     global _STATE
 
+    vault_id = record["id"]
+    storage_name = record["storageName"]
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vaults.open.start",
+        vault_id=vault_id,
+        storage_name=storage_name,
+        encrypted=bool(record.get("encrypted")),
+    )
+
     if _STATE is not None and _STATE["vault"]["id"] == record["id"]:
         js.console.log("[worker] vaults.open: vault already open (cache hit)")
+        emit_runtime_diagnostic(
+            "worker_phase",
+            phase="vaults.open.cache_hit",
+            vault_id=vault_id,
+            storage_name=storage_name,
+        )
         return _STATE
 
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vaults.open.close_existing.start",
+        vault_id=vault_id,
+        storage_name=storage_name,
+    )
     await _close_state(clear=False)
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vaults.open.close_existing.end",
+        vault_id=vault_id,
+        storage_name=storage_name,
+    )
 
     derived_bran = bran or ""
     if record.get("encrypted"):
@@ -485,17 +590,48 @@ async def _open_vault_state(record, *, passcode=None, bran: str | None = None):
             raise RuntimeFault("VALIDATION", "Passcode is required to open this vault.")
         if not derived_bran:
             t_kdf = _perf_ms()
+            emit_runtime_diagnostic(
+                "worker_phase",
+                phase="vaults.open.kdf.start",
+                vault_id=vault_id,
+                storage_name=storage_name,
+            )
             derived_bran = _prepare_bran(passcode, record.get("passcodeKdf"))
             js.console.log(f"[worker] _prepare_bran (Argon2id KDF): {_perf_ms() - t_kdf:.0f}ms")
+            emit_runtime_diagnostic(
+                "worker_phase",
+                phase="vaults.open.kdf.end",
+                vault_id=vault_id,
+                storage_name=storage_name,
+                duration_ms=round(_perf_ms() - t_kdf),
+            )
 
     modules = _load_modules()
     try:
+        emit_runtime_diagnostic(
+            "worker_phase",
+            phase="vaults.open.build_state.start",
+            vault_id=vault_id,
+            storage_name=storage_name,
+        )
         _STATE = await _build_vault_state(record, bran=derived_bran)
+        emit_runtime_diagnostic(
+            "worker_phase",
+            phase="vaults.open.build_state.end",
+            vault_id=vault_id,
+            storage_name=storage_name,
+        )
     except modules["kering"].AuthError as exc:
         raise RuntimeFault("AUTH_FAILED", str(exc) or "Passcode incorrect for this vault.") from exc
     except ValueError as exc:
         raise RuntimeFault("VALIDATION", str(exc)) from exc
 
+    emit_runtime_diagnostic(
+        "worker_phase",
+        phase="vaults.open.end",
+        vault_id=vault_id,
+        storage_name=storage_name,
+    )
     return _STATE
 
 

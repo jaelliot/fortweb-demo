@@ -82,8 +82,8 @@
     --card-gap: 18px;
     --field-gap: 16px;
     --content-inline-gutter: 16px;
-    --safe-area-buffer-top: 20px;
-    --safe-area-buffer-bottom: 20px;
+    --safe-area-buffer-top: 8px;
+    --safe-area-buffer-bottom: 4px;
     --home-shell-top-padding: clamp(22px, 5vw, 36px);
     --home-shell-bottom-padding: clamp(24px, 6vw, 40px);
     --shell-header-inline-padding: 16px;

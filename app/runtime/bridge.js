@@ -3,6 +3,7 @@ import { parse as parseToml } from "../../vendor/pyscript/2025.11.2/toml-BK2RWy-
 import { createRuntimeRequest, isRuntimeResponse } from "./messages.js";
 
 const NATIVE_BRIDGE_HANDLER_NAME = "bridge";
+const WORKER_DIAGNOSTIC_KIND = "fortweb.runtime.diagnostic";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const WORKER_LIVENESS_TIMEOUT_MS = 3_000;
 const BACKGROUND_STALE_THRESHOLD_MS = 30_000;
@@ -117,6 +118,30 @@ function parseRuntimeResponse(rawResponse) {
     }
 }
 
+function parseWorkerDiagnostic(rawPayload) {
+    const payload =
+        typeof rawPayload === "string"
+            ? (() => {
+                  try {
+                      return JSON.parse(rawPayload);
+                  } catch {
+                      return null;
+                  }
+              })()
+            : rawPayload?.data ?? rawPayload;
+
+    if (!payload || payload.kind !== WORKER_DIAGNOSTIC_KIND || typeof payload.event !== "string") {
+        return null;
+    }
+
+    const { kind, event, level, ...fields } = payload;
+    return {
+        event,
+        level: typeof level === "string" ? level : undefined,
+        fields,
+    };
+}
+
 export function createRuntimeBridge({ workerUrl, configUrl }) {
     let requestCounter = 0;
     let bootedWorker = null;
@@ -192,6 +217,20 @@ export function createRuntimeBridge({ workerUrl, configUrl }) {
     }
 
     function attachWorkerHandlers(worker) {
+        if (typeof worker.addEventListener === "function") {
+            worker.addEventListener("message", (event) => {
+                const diagnostic = parseWorkerDiagnostic(event?.data);
+                if (!diagnostic) {
+                    return;
+                }
+
+                emitNativeLog(diagnostic.event, {
+                    level: diagnostic.level ?? "info",
+                    ...diagnostic.fields,
+                });
+            });
+        }
+
         worker.onerror = (ev) => {
             console.error("[bridge] worker error:", ev?.message ?? ev);
             emitNativeLifecycle("error", {

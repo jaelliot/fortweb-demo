@@ -307,7 +307,7 @@ const actions = {
 
     async lockVault(vaultId) {
         if (isUnlocked(vaultId)) {
-            await bridge.request(METHODS.vaultsClose, { vaultId });
+            await bridge.request(METHODS.vaultsClose, { vaultId }).catch(() => {});
         }
 
         session.patch({
@@ -315,7 +315,7 @@ const actions = {
             vaultSummary: null,
             mobileNavOpen: false,
         });
-        await actions.refreshVaults(null, null);
+        await actions.refreshVaults(null, null).catch(() => null);
         navigate(unlockHref(vaultId));
     },
 
@@ -600,7 +600,7 @@ async function render() {
             renderNotFoundRoute(route, currentState(), vault);
             return;
         }
-        if (error?.code === "LOCKED" && route.params?.vaultId) {
+        if ((error?.code === "LOCKED" || error?.code === "TIMEOUT") && route.params?.vaultId) {
             session.patch({
                 unlockedVaultId: null,
                 vaultSummary: null,
